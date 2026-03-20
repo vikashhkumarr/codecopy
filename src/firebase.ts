@@ -1,8 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { 
-  initializeAuth, 
-  browserLocalPersistence, 
-  indexedDBLocalPersistence,
+  getAuth, 
   GoogleAuthProvider, 
   signInWithPopup, 
   signOut, 
@@ -15,9 +13,7 @@ import firebaseConfig from '../firebase-applet-config.json';
 // Initialize Firebase SDK
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const auth = initializeAuth(app, {
-  persistence: [indexedDBLocalPersistence, browserLocalPersistence]
-});
+export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
 // Operation Types for Error Handling

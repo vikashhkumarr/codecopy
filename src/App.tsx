@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useMemo, FormEvent } from 'react';
 import { 
-  Copy, ExternalLink, Check, Flame, Tag, Search, 
+  Copy, ExternalLink, Check, Flame, Tag, Search, Share2,
   Plus, X, Lock, Unlock, Key, LogOut, Trash2, Edit2, 
   ChevronRight, LayoutGrid, Filter, AlertCircle, Loader2
 } from 'lucide-react';
@@ -17,7 +17,19 @@ import {
 } from './firebase';
 
 // Types
+// Constants
 const ADMIN_EMAIL = 'socailmediaon@gmail.com';
+const SUGGESTED_CATEGORIES = [
+  'AI Tools',
+  'Extensions',
+  'Prompts',
+  'Ebooks',
+  'Software',
+  'Hosting',
+  'Design',
+  'Marketing',
+  'Courses'
+];
 
 interface Deal {
   id: string;
@@ -226,6 +238,7 @@ export default function App() {
                 deals={deals} 
                 user={user} 
                 onLogout={handleLogout} 
+                categories={categories}
               />
             )}
           </AnimatePresence>
@@ -369,7 +382,7 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
   );
 }
 
-function DashboardPage({ deals, user, onLogout }: { deals: Deal[]; user: User; onLogout: () => void }) {
+function DashboardPage({ deals, user, onLogout, categories }: { deals: Deal[]; user: User; onLogout: () => void; categories: string[] }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingDeal, setEditingDeal] = useState<Deal | null>(null);
 
@@ -479,6 +492,7 @@ function DashboardPage({ deals, user, onLogout }: { deals: Deal[]; user: User; o
             deal={editingDeal} 
             onClose={() => { setShowAddModal(false); setEditingDeal(null); }} 
             user={user}
+            existingCategories={categories}
           />
         )}
       </AnimatePresence>
@@ -490,6 +504,7 @@ function DashboardPage({ deals, user, onLogout }: { deals: Deal[]; user: User; o
 
 function DealCard({ deal, index }: { deal: Deal; index: number; key?: string }) {
   const [copied, setCopied] = useState(false);
+  const [shared, setShared] = useState(false);
 
   const handleCopy = async () => {
     try {
@@ -501,14 +516,28 @@ function DealCard({ deal, index }: { deal: Deal; index: number; key?: string }) 
     }
   };
 
+  const handleShare = async () => {
+    try {
+      await navigator.clipboard.writeText(deal.link);
+      setShared(true);
+      setTimeout(() => setShared(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy link: ', err);
+    }
+  };
+
   return (
     <motion.div
       layout
       initial={{ opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.9 }}
-      transition={{ duration: 0.3 }}
-      className={`glass-card rounded-2xl p-6 flex flex-col h-full group relative overflow-hidden ${
+      whileHover={{ 
+        scale: 1.02, 
+        y: -5,
+        transition: { duration: 0.2 }
+      }}
+      className={`glass-card rounded-2xl p-6 flex flex-col h-full group relative overflow-hidden transition-all duration-300 hover:shadow-2xl hover:shadow-emerald-500/10 ${
         deal.featured ? 'border-emerald-500/50 bg-emerald-500/[0.03]' : ''
       }`}
     >
@@ -585,25 +614,58 @@ function DealCard({ deal, index }: { deal: Deal; index: number; key?: string }) 
           </div>
         </div>
 
-        <a
-          href={deal.link}
-          target="_blank"
-          rel="noopener noreferrer nofollow"
-          className="flex items-center justify-center w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold transition-all duration-300 shadow-lg shadow-emerald-500/20 group/btn"
-        >
-          Get Deal
-          <ExternalLink className="w-4 h-4 ml-2 group-hover/btn:translate-x-1 group-hover/btn:-translate-y-1 transition-transform" />
-        </a>
+        <div className="flex gap-2">
+          <button
+            onClick={handleShare}
+            className="flex items-center justify-center p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-zinc-400 hover:text-white transition-all relative group/share"
+            title="Share Deal Link"
+          >
+            <AnimatePresence mode="wait">
+              {shared ? (
+                <motion.div key="check" initial={{ scale: 0.5 }} animate={{ scale: 1 }} exit={{ scale: 0.5 }}>
+                  <Check className="w-4 h-4 text-emerald-400" />
+                </motion.div>
+              ) : (
+                <motion.div key="share" initial={{ scale: 0.5 }} animate={{ scale: 1 }} exit={{ scale: 0.5 }}>
+                  <Share2 className="w-4 h-4" />
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <AnimatePresence>
+              {shared && (
+                <motion.span
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: -35 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute left-1/2 -translate-x-1/2 text-[10px] font-bold text-emerald-400 uppercase tracking-tighter whitespace-nowrap"
+                >
+                  Link Copied!
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </button>
+          <motion.a
+            href={deal.link}
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+            whileHover={{ y: -2, scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="flex items-center justify-center flex-grow py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold transition-all duration-300 shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 group/btn"
+          >
+            Get Deal
+            <ExternalLink className="w-4 h-4 ml-2 group-hover/btn:translate-x-1 group-hover/btn:-translate-y-1 transition-transform" />
+          </motion.a>
+        </div>
       </div>
     </motion.div>
   );
 }
 
-function DealModal({ deal, onClose, user }: { deal: Deal | null; onClose: () => void; user: User }) {
+function DealModal({ deal, onClose, user, existingCategories }: { deal: Deal | null; onClose: () => void; user: User; existingCategories: string[] }) {
   const [formData, setFormData] = useState({
     name: deal?.name || '',
     price: deal?.price || '',
-    category: deal?.category || 'Tools',
+    category: deal?.category || 'AI Tools',
     code: deal?.code || '',
     link: deal?.link || '',
     icon: deal?.icon || '💰',
@@ -611,6 +673,12 @@ function DealModal({ deal, onClose, user }: { deal: Deal | null; onClose: () => 
     featured: deal?.featured || false
   });
   const [saving, setSaving] = useState(false);
+
+  const allSuggestions = useMemo(() => {
+    const combined = new Set([...SUGGESTED_CATEGORIES, ...existingCategories]);
+    combined.delete('All');
+    return Array.from(combined).sort();
+  }, [existingCategories]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -672,7 +740,19 @@ function DealModal({ deal, onClose, user }: { deal: Deal | null; onClose: () => 
             </div>
             <div className="space-y-1">
               <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Category</label>
-              <input required value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 outline-none focus:border-emerald-500/50" placeholder="e.g. Hosting" />
+              <input 
+                required 
+                list="category-suggestions"
+                value={formData.category} 
+                onChange={e => setFormData({...formData, category: e.target.value})} 
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 outline-none focus:border-emerald-500/50" 
+                placeholder="e.g. AI Tools" 
+              />
+              <datalist id="category-suggestions">
+                {allSuggestions.map(cat => (
+                  <option key={cat} value={cat} />
+                ))}
+              </datalist>
             </div>
           </div>
 

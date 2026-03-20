@@ -134,8 +134,7 @@ export default function App() {
         ...doc.data()
       })) as Deal[];
       setDeals(dealsData);
-      // If we have deals but no categories yet, we can still stop loading to show deals
-      if (dealsData.length > 0) setLoading(false);
+      setLoading(false);
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, 'deals');
       setError(err.message);
@@ -168,8 +167,11 @@ export default function App() {
 
   const filteredDeals = useMemo(() => {
     return deals.filter(deal => {
-      const matchesSearch = deal.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                           deal.description.toLowerCase().includes(searchQuery.toLowerCase());
+      const name = deal.name?.toLowerCase() || '';
+      const description = deal.description?.toLowerCase() || '';
+      const search = searchQuery.toLowerCase();
+      
+      const matchesSearch = name.includes(search) || description.includes(search);
       const matchesCategory = selectedCategory === 'All' || deal.category === selectedCategory;
       return matchesSearch && matchesCategory;
     });
@@ -422,6 +424,7 @@ function CategoryManager({
   const [newCategoryIcon, setNewCategoryIcon] = useState('📁');
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deletingCategory, setDeletingCategory] = useState<Category | null>(null);
 
   const handleAddCategory = async (e: FormEvent) => {
     e.preventDefault();
@@ -431,7 +434,7 @@ function CategoryManager({
       await addDoc(collection(db, 'categories'), {
         name: newCategoryName.trim(),
         icon: newCategoryIcon,
-        createdAt: serverTimestamp()
+        createdAt: Timestamp.now()
       });
       setNewCategoryName('');
       setNewCategoryIcon('📁');
@@ -475,15 +478,9 @@ function CategoryManager({
   };
 
   const handleDeleteCategory = async (category: Category) => {
+    setDeletingCategory(null);
     const associatedDeals = deals.filter(d => d.category === category.name);
-    let confirmMessage = `Are you sure you want to delete "${category.name}"?`;
     
-    if (associatedDeals.length > 0) {
-      confirmMessage += `\n\nThere are ${associatedDeals.length} deals in this category. They will be moved to "General".`;
-    }
-
-    if (!confirm(confirmMessage)) return;
-
     try {
       // Move deals to General
       for (const deal of associatedDeals) {
@@ -497,7 +494,7 @@ function CategoryManager({
         await addDoc(collection(db, 'categories'), {
           name: 'General',
           icon: '📁',
-          createdAt: serverTimestamp()
+          createdAt: Timestamp.now()
         });
       }
 
@@ -604,7 +601,7 @@ function CategoryManager({
                       <Edit2 className="w-4 h-4" />
                     </button>
                     <button 
-                      onClick={() => handleDeleteCategory(cat)}
+                      onClick={() => setDeletingCategory(cat)}
                       className="p-2 rounded-lg hover:bg-red-500/10 text-zinc-500 hover:text-red-400 transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -616,6 +613,47 @@ function CategoryManager({
           </div>
         </div>
       </motion.div>
+
+      {/* Category Delete Confirmation */}
+      <AnimatePresence>
+        {deletingCategory && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-zinc-900 border border-white/10 p-8 rounded-3xl max-w-md w-full text-center shadow-2xl"
+            >
+              <div className="w-16 h-16 bg-red-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-red-500/20">
+                <Folder className="w-8 h-8 text-red-400" />
+              </div>
+              <h3 className="text-xl font-bold mb-2">Delete Category?</h3>
+              <p className="text-zinc-400 mb-4 text-sm">
+                Are you sure you want to delete "{deletingCategory.name}"?
+              </p>
+              {deals.filter(d => d.category === deletingCategory.name).length > 0 && (
+                <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/10 mb-8 text-xs text-emerald-400/80">
+                  Note: {deals.filter(d => d.category === deletingCategory.name).length} deals will be moved to "General".
+                </div>
+              )}
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setDeletingCategory(null)}
+                  className="flex-1 py-3 rounded-xl bg-white/5 text-zinc-300 font-bold hover:bg-white/10 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => handleDeleteCategory(deletingCategory)}
+                  className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold hover:bg-red-400 transition-colors shadow-lg shadow-red-500/20"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -636,11 +674,12 @@ function DashboardPage({
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingDeal, setEditingDeal] = useState<Deal | null>(null);
   const [showCategoryManager, setShowCategoryManager] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   if (user.email !== ADMIN_EMAIL) return null;
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this deal?')) return;
+    setDeletingId(null);
     try {
       await deleteDoc(doc(db, 'deals', id));
     } catch (err) {
@@ -732,7 +771,7 @@ function DashboardPage({
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button 
-                        onClick={() => handleDelete(deal.id)}
+                        onClick={() => setDeletingId(deal.id)}
                         className="p-2 rounded-lg hover:bg-red-500/10 text-zinc-500 hover:text-red-400 transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -745,6 +784,40 @@ function DashboardPage({
           </table>
         </div>
       </div>
+
+      {/* Custom Delete Confirmation */}
+      <AnimatePresence>
+        {deletingId && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-zinc-900 border border-white/10 p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl"
+            >
+              <div className="w-16 h-16 bg-red-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-red-500/20">
+                <Trash2 className="w-8 h-8 text-red-400" />
+              </div>
+              <h3 className="text-xl font-bold mb-2">Delete Deal?</h3>
+              <p className="text-zinc-400 mb-8 text-sm">This action cannot be undone. Are you sure you want to remove this deal?</p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setDeletingId(null)}
+                  className="flex-1 py-3 rounded-xl bg-white/5 text-zinc-300 font-bold hover:bg-white/10 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => handleDelete(deletingId)}
+                  className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold hover:bg-red-400 transition-colors shadow-lg shadow-red-500/20"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {(showAddModal || editingDeal) && (
@@ -954,7 +1027,7 @@ function DealModal({ deal, onClose, user, existingCategories }: { deal: Deal | n
       const data = {
         ...formData,
         authorUid: user.uid,
-        createdAt: deal ? deal.createdAt : serverTimestamp()
+        createdAt: deal ? deal.createdAt : Timestamp.now()
       };
 
       if (deal) {

@@ -42,9 +42,13 @@
         "authorUid": {
           "type": "string",
           "description": "The UID of the admin who added the deal."
+        },
+        "featured": {
+          "type": "boolean",
+          "description": "Whether the deal is featured and should be displayed prominently."
         }
       },
-      "required": ["name", "price", "code", "link", "category", "createdAt", "authorUid"]
+      "required": ["name", "price", "code", "link", "category", "createdAt", "authorUid", "featured"]
     }
   },
   "firestore": {

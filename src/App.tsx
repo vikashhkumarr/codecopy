@@ -17,6 +17,8 @@ import {
 } from './firebase';
 
 // Types
+const ADMIN_EMAIL = 'socailmediaon@gmail.com';
+
 interface Deal {
   id: string;
   name: string;
@@ -26,6 +28,7 @@ interface Deal {
   category: string;
   icon: string;
   description: string;
+  featured: boolean;
   createdAt: Timestamp;
   authorUid: string;
 }
@@ -68,12 +71,36 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
 
+  // URL Listener for hidden admin access
+  useEffect(() => {
+    const handleHashChange = () => {
+      if (window.location.hash === '#admin') {
+        setCurrentPage('login');
+        // Clear hash so it doesn't stay in URL if they refresh
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    };
+    
+    handleHashChange();
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
   // Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
-      if (user && currentPage === 'login') {
-        setCurrentPage('dashboard');
+      if (user) {
+        if (user.email === ADMIN_EMAIL) {
+          if (currentPage === 'login') {
+            setCurrentPage('dashboard');
+          }
+        } else {
+          // Not the admin, sign out or redirect
+          signOut(auth);
+          setError('Unauthorized: Only the real admin can access the dashboard.');
+          setCurrentPage('public');
+        }
       }
     });
     return () => unsubscribe();
@@ -113,8 +140,14 @@ export default function App() {
 
   const handleLogin = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
-      setCurrentPage('dashboard');
+      const result = await signInWithPopup(auth, googleProvider);
+      if (result.user.email === ADMIN_EMAIL) {
+        setCurrentPage('dashboard');
+      } else {
+        await signOut(auth);
+        setError('Unauthorized: Only the real admin can access the dashboard.');
+        setCurrentPage('public');
+      }
     } catch (err: any) {
       setError(err.message);
     }
@@ -147,7 +180,7 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4">
-            {user ? (
+            {user && user.email === ADMIN_EMAIL && (
               <div className="flex items-center gap-4">
                 <button 
                   onClick={() => setCurrentPage('dashboard')}
@@ -163,14 +196,6 @@ export default function App() {
                   <LogOut className="w-5 h-5" />
                 </button>
               </div>
-            ) : (
-              <button 
-                onClick={() => setCurrentPage('login')}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-sm font-medium transition-all"
-              >
-                <Lock className="w-4 h-4" />
-                Admin
-              </button>
             )}
           </div>
         </div>
@@ -196,7 +221,7 @@ export default function App() {
               />
             )}
             {currentPage === 'login' && <LoginPage onLogin={handleLogin} />}
-            {currentPage === 'dashboard' && user && (
+            {currentPage === 'dashboard' && user && user.email === ADMIN_EMAIL && (
               <DashboardPage 
                 deals={deals} 
                 user={user} 
@@ -222,6 +247,9 @@ function PublicPage({
 }: { 
   deals: Deal[]; categories: string[]; selectedCategory: string; setSelectedCategory: (c: string) => void; searchQuery: string; setSearchQuery: (s: string) => void;
 }) {
+  const featuredDeals = useMemo(() => deals.filter(d => d.featured), [deals]);
+  const otherDeals = useMemo(() => deals.filter(d => !d.featured), [deals]);
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 20 }}
@@ -269,13 +297,38 @@ function PublicPage({
         </div>
       </div>
 
+      {/* Featured Section */}
+      {featuredDeals.length > 0 && (
+        <div className="mb-16">
+          <div className="flex items-center gap-2 mb-8">
+            <Flame className="w-6 h-6 text-emerald-400" />
+            <h2 className="text-2xl font-bold uppercase tracking-widest text-emerald-400">Featured Deals</h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <AnimatePresence mode="popLayout">
+              {featuredDeals.map((deal, index) => (
+                <DealCard key={deal.id} deal={deal} index={index} />
+              ))}
+            </AnimatePresence>
+          </div>
+        </div>
+      )}
+
       {/* Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        <AnimatePresence mode="popLayout">
-          {deals.map((deal, index) => (
-            <DealCard key={deal.id} deal={deal} index={index} />
-          ))}
-        </AnimatePresence>
+      <div>
+        {featuredDeals.length > 0 && otherDeals.length > 0 && (
+          <div className="flex items-center gap-2 mb-8">
+            <LayoutGrid className="w-6 h-6 text-zinc-500" />
+            <h2 className="text-2xl font-bold uppercase tracking-widest text-zinc-500">All Deals</h2>
+          </div>
+        )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <AnimatePresence mode="popLayout">
+            {otherDeals.map((deal, index) => (
+              <DealCard key={deal.id} deal={deal} index={index} />
+            ))}
+          </AnimatePresence>
+        </div>
       </div>
 
       {deals.length === 0 && (
@@ -320,6 +373,8 @@ function DashboardPage({ deals, user, onLogout }: { deals: Deal[]; user: User; o
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingDeal, setEditingDeal] = useState<Deal | null>(null);
 
+  if (user.email !== ADMIN_EMAIL) return null;
+
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this deal?')) return;
     try {
@@ -357,6 +412,7 @@ function DashboardPage({ deals, user, onLogout }: { deals: Deal[]; user: User; o
               <tr className="bg-white/5 border-b border-white/10">
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-zinc-500">Deal</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-zinc-500">Category</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-zinc-500">Featured</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-zinc-500">Code</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-zinc-500">Created</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-zinc-500 text-right">Actions</th>
@@ -378,6 +434,15 @@ function DashboardPage({ deals, user, onLogout }: { deals: Deal[]; user: User; o
                     <span className="px-2 py-1 rounded-md bg-white/5 text-xs text-zinc-400 border border-white/5">
                       {deal.category}
                     </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    {deal.featured ? (
+                      <span className="flex items-center gap-1 text-emerald-400 text-xs font-bold uppercase">
+                        <Flame className="w-3 h-3" /> Featured
+                      </span>
+                    ) : (
+                      <span className="text-zinc-600 text-xs uppercase">No</span>
+                    )}
                   </td>
                   <td className="px-6 py-4">
                     <code className="text-emerald-400 font-mono text-sm">{deal.code}</code>
@@ -443,10 +508,23 @@ function DealCard({ deal, index }: { deal: Deal; index: number; key?: string }) 
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.9 }}
       transition={{ duration: 0.3 }}
-      className="glass-card rounded-2xl p-6 flex flex-col h-full group relative overflow-hidden"
+      className={`glass-card rounded-2xl p-6 flex flex-col h-full group relative overflow-hidden ${
+        deal.featured ? 'border-emerald-500/50 bg-emerald-500/[0.03]' : ''
+      }`}
     >
+      {deal.featured && (
+        <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 via-transparent to-transparent pointer-events-none" />
+      )}
       <div className="absolute -top-24 -right-24 w-48 h-48 bg-emerald-500/10 blur-[80px] group-hover:bg-emerald-500/20 transition-colors duration-500" />
       
+      {deal.featured && (
+        <div className="absolute top-0 right-0">
+          <div className="bg-emerald-500 text-black text-[10px] font-black uppercase px-4 py-1 rotate-45 translate-x-4 translate-y-2 shadow-lg">
+            Featured
+          </div>
+        </div>
+      )}
+
       <div className="flex items-start justify-between mb-4">
         <div className="text-4xl">{deal.icon}</div>
         <div className="flex flex-col items-end gap-2">
@@ -529,7 +607,8 @@ function DealModal({ deal, onClose, user }: { deal: Deal | null; onClose: () => 
     code: deal?.code || '',
     link: deal?.link || '',
     icon: deal?.icon || '💰',
-    description: deal?.description || ''
+    description: deal?.description || '',
+    featured: deal?.featured || false
   });
   const [saving, setSaving] = useState(false);
 
@@ -610,6 +689,20 @@ function DealModal({ deal, onClose, user }: { deal: Deal | null; onClose: () => 
           <div className="space-y-1">
             <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Description</label>
             <textarea value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 outline-none focus:border-emerald-500/50 h-20 resize-none" />
+          </div>
+
+          <div className="flex items-center gap-3 p-4 rounded-2xl bg-white/5 border border-white/10">
+            <input 
+              type="checkbox" 
+              id="featured"
+              checked={formData.featured} 
+              onChange={e => setFormData({...formData, featured: e.target.checked})}
+              className="w-5 h-5 rounded-lg accent-emerald-500"
+            />
+            <label htmlFor="featured" className="text-sm font-bold text-zinc-300 cursor-pointer flex items-center gap-2">
+              <Flame className="w-4 h-4 text-emerald-400" />
+              Mark as Featured Deal
+            </label>
           </div>
 
           <button 

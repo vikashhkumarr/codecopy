@@ -1,0 +1,62 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: deals
+    // Document ID: auto-generated
+    // Fields:
+    //   - name: string (required) - Tool/service name
+    //   - price: string (required) - Discount display
+    //   - code: string (required) - Coupon code
+    //   - link: string (required, format: uri) - Referral link
+    //   - category: string (required) - Category (e.g. Hosting, AI)
+    //   - icon: string (optional) - Emoji icon
+    //   - description: string (optional) - Short description
+    //   - createdAt: timestamp (required) - Creation time
+    //   - authorUid: string (required) - Admin UID
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (request.auth.token.email == "socailmediaon@gmail.com" && request.auth.token.email_verified == true);
+    }
+
+    function isValidDeal(data) {
+      return data.keys().hasAll(['name', 'price', 'code', 'link', 'category', 'createdAt', 'authorUid']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.price is string && data.price.size() > 0 && data.price.size() < 50 &&
+             data.code is string && data.code.size() > 0 && data.code.size() < 50 &&
+             data.link is string && data.link.matches("^https?://.*") &&
+             data.category is string && data.category.size() > 0 && data.category.size() < 50 &&
+             data.createdAt is timestamp &&
+             data.authorUid == request.auth.uid;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /deals/{dealId} {
+      // Publicly readable
+      allow read: if true;
+      
+      // Only admin can create/update/delete
+      allow create: if isAdmin() && isValidDeal(request.resource.data);
+      allow update: if isAdmin() && isValidDeal(request.resource.data);
+      allow delete: if isAdmin();
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "entities": {
+    "Deal": {
+      "title": "Deal",
+      "description": "A referral deal or coupon code.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the tool or service."
+        },
+        "price": {
+          "type": "string",
+          "description": "The discount or price display (e.g. $20 OFF)."
+        },
+        "code": {
+          "type": "string",
+          "description": "The coupon code."
+        },
+        "link": {
+          "type": "string",
+          "format": "uri",
+          "description": "The referral link."
+        },
+        "category": {
+          "type": "string",
+          "description": "The category of the deal (e.g. Hosting, AI)."
+        },
+        "icon": {
+          "type": "string",
+          "description": "An emoji or icon representing the tool."
+        },
+        "description": {
+          "type": "string",
+          "description": "A short description of the deal."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the deal was added."
+        },
+        "authorUid": {
+          "type": "string",
+          "description": "The UID of the admin who added the deal."
+        }
+      },
+      "required": ["name", "price", "code", "link", "category", "createdAt", "authorUid"]
+    }
+  },
+  "firestore": {
+    "deals": {
+      "schema": "Deal",
+      "description": "Collection of referral deals and coupon codes."
+    }
+  }
+}

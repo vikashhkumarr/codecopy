@@ -49,12 +49,37 @@
         }
       },
       "required": ["name", "price", "code", "link", "category", "createdAt", "authorUid", "featured"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "A category for deals.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the category."
+        },
+        "icon": {
+          "type": "string",
+          "description": "An emoji or icon representing the category."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the category was created."
+        }
+      },
+      "required": ["name", "createdAt"]
     }
   },
   "firestore": {
     "deals": {
       "schema": "Deal",
       "description": "Collection of referral deals and coupon codes."
+    },
+    "categories": {
+      "schema": "Category",
+      "description": "Collection of deal categories."
     }
   }
 }

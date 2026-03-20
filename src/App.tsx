@@ -3,17 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useMemo, FormEvent } from 'react';
+import React, { useState, useEffect, useMemo, FormEvent } from 'react';
 import { 
   Copy, ExternalLink, Check, Flame, Tag, Search, Share2,
   Plus, X, Lock, Unlock, Key, LogOut, Trash2, Edit2, 
-  ChevronRight, LayoutGrid, Filter, AlertCircle, Loader2
+  ChevronRight, LayoutGrid, Filter, AlertCircle, Loader2, Settings, Folder
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   db, auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged, 
   collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, 
-  serverTimestamp, Timestamp, handleFirestoreError, OperationType, User 
+  serverTimestamp, Timestamp, handleFirestoreError, OperationType, User, limit
 } from './firebase';
 
 // Types
@@ -43,6 +43,13 @@ interface Deal {
   featured: boolean;
   createdAt: Timestamp;
   authorUid: string;
+}
+
+interface Category {
+  id: string;
+  name: string;
+  icon?: string;
+  createdAt: Timestamp;
 }
 
 type Page = 'public' | 'login' | 'dashboard';
@@ -78,10 +85,12 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>('public');
   const [user, setUser] = useState<User | null>(null);
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
 
   // URL Listener for hidden admin access
   useEffect(() => {
@@ -104,11 +113,8 @@ export default function App() {
       setUser(user);
       if (user) {
         if (user.email === ADMIN_EMAIL) {
-          if (currentPage === 'login') {
-            setCurrentPage('dashboard');
-          }
+          setCurrentPage(prev => prev === 'login' ? 'dashboard' : prev);
         } else {
-          // Not the admin, sign out or redirect
           signOut(auth);
           setError('Unauthorized: Only the real admin can access the dashboard.');
           setCurrentPage('public');
@@ -116,30 +122,49 @@ export default function App() {
       }
     });
     return () => unsubscribe();
-  }, [currentPage]);
+  }, []);
 
-  // Firestore Listener
+  // Firestore Listeners
   useEffect(() => {
-    const q = query(collection(db, 'deals'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    // Limit initial fetch to 100 deals for performance
+    const dealsQuery = query(collection(db, 'deals'), orderBy('createdAt', 'desc'), limit(100));
+    const unsubscribeDeals = onSnapshot(dealsQuery, (snapshot) => {
       const dealsData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as Deal[];
       setDeals(dealsData);
-      setLoading(false);
+      // If we have deals but no categories yet, we can still stop loading to show deals
+      if (dealsData.length > 0) setLoading(false);
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, 'deals');
       setError(err.message);
       setLoading(false);
     });
-    return () => unsubscribe();
+
+    const categoriesQuery = query(collection(db, 'categories'), orderBy('name', 'asc'));
+    const unsubscribeCategories = onSnapshot(categoriesQuery, (snapshot) => {
+      const categoriesData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Category[];
+      setCategories(categoriesData);
+      setLoading(false);
+    }, (err) => {
+      handleFirestoreError(err, OperationType.LIST, 'categories');
+      setError(err.message);
+      setLoading(false);
+    });
+
+    return () => {
+      unsubscribeDeals();
+      unsubscribeCategories();
+    };
   }, []);
 
-  const categories = useMemo(() => {
-    const cats = new Set(deals.map(d => d.category));
-    return ['All', ...Array.from(cats)];
-  }, [deals]);
+  const categoryOptions = useMemo(() => {
+    return ['All', ...categories.map(c => c.name)];
+  }, [categories]);
 
   const filteredDeals = useMemo(() => {
     return deals.filter(deal => {
@@ -221,11 +246,11 @@ export default function App() {
             <p>Loading the best deals...</p>
           </div>
         ) : (
-          <AnimatePresence mode="wait">
+          <AnimatePresence>
             {currentPage === 'public' && (
               <PublicPage 
                 deals={filteredDeals} 
-                categories={categories}
+                categories={categoryOptions}
                 selectedCategory={selectedCategory}
                 setSelectedCategory={setSelectedCategory}
                 searchQuery={searchQuery}
@@ -239,6 +264,7 @@ export default function App() {
                 user={user} 
                 onLogout={handleLogout} 
                 categories={categories}
+                categoryOptions={categoryOptions}
               />
             )}
           </AnimatePresence>
@@ -255,19 +281,20 @@ export default function App() {
 
 // --- Pages ---
 
-function PublicPage({ 
+const PublicPage = React.memo(({ 
   deals, categories, selectedCategory, setSelectedCategory, searchQuery, setSearchQuery 
 }: { 
   deals: Deal[]; categories: string[]; selectedCategory: string; setSelectedCategory: (c: string) => void; searchQuery: string; setSearchQuery: (s: string) => void;
-}) {
+}) => {
   const featuredDeals = useMemo(() => deals.filter(d => d.featured), [deals]);
   const otherDeals = useMemo(() => deals.filter(d => !d.featured), [deals]);
 
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.3 }}
       className="max-w-7xl mx-auto"
     >
       {/* Hero */}
@@ -352,7 +379,7 @@ function PublicPage({
       )}
     </motion.div>
   );
-}
+});
 
 function LoginPage({ onLogin }: { onLogin: () => void }) {
   return (
@@ -382,9 +409,233 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
   );
 }
 
-function DashboardPage({ deals, user, onLogout, categories }: { deals: Deal[]; user: User; onLogout: () => void; categories: string[] }) {
+function CategoryManager({ 
+  categories, 
+  onClose,
+  deals 
+}: { 
+  categories: Category[]; 
+  onClose: () => void;
+  deals: Deal[];
+}) {
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryIcon, setNewCategoryIcon] = useState('📁');
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleAddCategory = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!newCategoryName.trim()) return;
+    setIsSubmitting(true);
+    try {
+      await addDoc(collection(db, 'categories'), {
+        name: newCategoryName.trim(),
+        icon: newCategoryIcon,
+        createdAt: serverTimestamp()
+      });
+      setNewCategoryName('');
+      setNewCategoryIcon('📁');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'categories');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleUpdateCategory = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!editingCategory || !newCategoryName.trim()) return;
+    setIsSubmitting(true);
+    try {
+      const oldName = editingCategory.name;
+      const newName = newCategoryName.trim();
+      
+      // Update the category itself
+      await updateDoc(doc(db, 'categories', editingCategory.id), {
+        name: newName,
+        icon: newCategoryIcon
+      });
+
+      // Update all deals with this category
+      const dealsToUpdate = deals.filter(d => d.category === oldName);
+      for (const deal of dealsToUpdate) {
+        await updateDoc(doc(db, 'deals', deal.id), {
+          category: newName
+        });
+      }
+
+      setEditingCategory(null);
+      setNewCategoryName('');
+      setNewCategoryIcon('📁');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `categories/${editingCategory?.id}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteCategory = async (category: Category) => {
+    const associatedDeals = deals.filter(d => d.category === category.name);
+    let confirmMessage = `Are you sure you want to delete "${category.name}"?`;
+    
+    if (associatedDeals.length > 0) {
+      confirmMessage += `\n\nThere are ${associatedDeals.length} deals in this category. They will be moved to "General".`;
+    }
+
+    if (!confirm(confirmMessage)) return;
+
+    try {
+      // Move deals to General
+      for (const deal of associatedDeals) {
+        await updateDoc(doc(db, 'deals', deal.id), {
+          category: 'General'
+        });
+      }
+
+      // Ensure "General" category exists if we moved deals to it
+      if (associatedDeals.length > 0 && !categories.find(c => c.name === 'General')) {
+        await addDoc(collection(db, 'categories'), {
+          name: 'General',
+          icon: '📁',
+          createdAt: serverTimestamp()
+        });
+      }
+
+      await deleteDoc(doc(db, 'categories', category.id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `categories/${category.id}`);
+    }
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+    >
+      <motion.div 
+        initial={{ scale: 0.9, y: 20 }}
+        animate={{ scale: 1, y: 0 }}
+        className="w-full max-w-2xl bg-zinc-900 border border-white/10 rounded-3xl overflow-hidden shadow-2xl"
+      >
+        <div className="p-6 border-b border-white/5 flex items-center justify-between bg-white/5">
+          <div className="flex items-center gap-3">
+            <Settings className="w-5 h-5 text-emerald-400" />
+            <h2 className="text-xl font-bold">Manage Categories</h2>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-xl transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* Form */}
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500 mb-4">
+              {editingCategory ? 'Edit Category' : 'Add New Category'}
+            </h3>
+            <form onSubmit={editingCategory ? handleUpdateCategory : handleAddCategory} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 uppercase mb-2">Category Name</label>
+                <input 
+                  type="text"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  placeholder="e.g. AI Tools"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500/50 transition-colors"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 uppercase mb-2">Icon (Emoji)</label>
+                <input 
+                  type="text"
+                  value={newCategoryIcon}
+                  onChange={(e) => setNewCategoryIcon(e.target.value)}
+                  placeholder="📁"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500/50 transition-colors text-2xl"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button 
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="flex-1 py-3 bg-emerald-500 text-black font-bold rounded-xl hover:bg-emerald-400 transition-all disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Saving...' : editingCategory ? 'Update' : 'Add Category'}
+                </button>
+                {editingCategory && (
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setEditingCategory(null);
+                      setNewCategoryName('');
+                      setNewCategoryIcon('📁');
+                    }}
+                    className="px-4 py-3 bg-white/5 text-zinc-400 font-bold rounded-xl hover:bg-white/10 transition-all"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+
+          {/* List */}
+          <div className="max-h-[400px] overflow-y-auto pr-2">
+            <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500 mb-4">Existing Categories</h3>
+            <div className="space-y-2">
+              {categories.map(cat => (
+                <div key={cat.id} className="flex items-center justify-between p-3 rounded-2xl bg-white/5 border border-white/5 group">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xl">{cat.icon}</span>
+                    <span className="font-medium">{cat.name}</span>
+                  </div>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button 
+                      onClick={() => {
+                        setEditingCategory(cat);
+                        setNewCategoryName(cat.name);
+                        setNewCategoryIcon(cat.icon || '📁');
+                      }}
+                      className="p-2 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition-colors"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => handleDeleteCategory(cat)}
+                      className="p-2 rounded-lg hover:bg-red-500/10 text-zinc-500 hover:text-red-400 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function DashboardPage({ 
+  deals, 
+  user, 
+  onLogout, 
+  categories,
+  categoryOptions 
+}: { 
+  deals: Deal[]; 
+  user: User; 
+  onLogout: () => void; 
+  categories: Category[];
+  categoryOptions: string[];
+}) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingDeal, setEditingDeal] = useState<Deal | null>(null);
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
 
   if (user.email !== ADMIN_EMAIL) return null;
 
@@ -409,13 +660,22 @@ function DashboardPage({ deals, user, onLogout, categories }: { deals: Deal[]; u
           <h1 className="text-4xl font-bold mb-2">Admin Dashboard</h1>
           <p className="text-zinc-400">Welcome back, {user.displayName || user.email}</p>
         </div>
-        <button 
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-emerald-500 text-black font-bold hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20"
-        >
-          <Plus className="w-5 h-5" />
-          Add New Deal
-        </button>
+        <div className="flex gap-3">
+          <button 
+            onClick={() => setShowCategoryManager(true)}
+            className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-white/5 border border-white/10 text-zinc-300 font-bold hover:bg-white/10 transition-all"
+          >
+            <Settings className="w-5 h-5" />
+            Manage Categories
+          </button>
+          <button 
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-emerald-500 text-black font-bold hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20"
+          >
+            <Plus className="w-5 h-5" />
+            Add New Deal
+          </button>
+        </div>
       </div>
 
       <div className="glass-card rounded-3xl border border-white/10 overflow-hidden">
@@ -492,7 +752,14 @@ function DashboardPage({ deals, user, onLogout, categories }: { deals: Deal[]; u
             deal={editingDeal} 
             onClose={() => { setShowAddModal(false); setEditingDeal(null); }} 
             user={user}
-            existingCategories={categories}
+            existingCategories={categoryOptions}
+          />
+        )}
+        {showCategoryManager && (
+          <CategoryManager 
+            categories={categories} 
+            onClose={() => setShowCategoryManager(false)}
+            deals={deals}
           />
         )}
       </AnimatePresence>
@@ -502,7 +769,7 @@ function DashboardPage({ deals, user, onLogout, categories }: { deals: Deal[]; u
 
 // --- Components ---
 
-function DealCard({ deal, index }: { deal: Deal; index: number; key?: string }) {
+const DealCard = React.memo(({ deal, index }: { deal: Deal; index: number; key?: string }) => {
   const [copied, setCopied] = useState(false);
   const [shared, setShared] = useState(false);
 
@@ -659,7 +926,7 @@ function DealCard({ deal, index }: { deal: Deal; index: number; key?: string }) 
       </div>
     </motion.div>
   );
-}
+});
 
 function DealModal({ deal, onClose, user, existingCategories }: { deal: Deal | null; onClose: () => void; user: User; existingCategories: string[] }) {
   const [formData, setFormData] = useState({

@@ -19,6 +19,13 @@ service cloud.firestore {
     //   - createdAt: timestamp (required) - Creation time
     //   - authorUid: string (required) - Admin UID
     //
+    // Collection: categories
+    // Document ID: auto-generated
+    // Fields:
+    //   - name: string (required) - Category name
+    //   - icon: string (optional) - Category icon
+    //   - createdAt: timestamp (required) - Creation time
+    //
     // ===============================================================
 
     // ===============================================================
@@ -46,6 +53,13 @@ service cloud.firestore {
              data.featured is bool;
     }
 
+    function isValidCategory(data) {
+      return data.keys().hasAll(['name', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 50 &&
+             data.createdAt is timestamp &&
+             (!('icon' in data) || (data.icon is string && data.icon.size() < 10));
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -57,6 +71,16 @@ service cloud.firestore {
       // Only admin can create/update/delete
       allow create: if isAdmin() && isValidDeal(request.resource.data);
       allow update: if isAdmin() && isValidDeal(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /categories/{categoryId} {
+      // Publicly readable
+      allow read: if true;
+      
+      // Only admin can create/update/delete
+      allow create: if isAdmin() && isValidCategory(request.resource.data);
+      allow update: if isAdmin() && isValidCategory(request.resource.data);
       allow delete: if isAdmin();
     }
   }
